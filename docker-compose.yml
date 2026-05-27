@@ -4,12 +4,8 @@ services:
     container_name: label-studio
     ports:
       - "8080:8080"
-    environment:
-      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
-      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/images
     volumes:
-      - ./2_label_studio:/label-studio/data
-      - ./1_raw_data:/label-studio/images
+      - ./1_label_studio:/label-studio/data
     restart: unless-stopped
 
   yolo:
