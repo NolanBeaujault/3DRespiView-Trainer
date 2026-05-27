@@ -1,0 +1,8 @@
+.DS_Store
+2_label_studio/media/
+2_label_studio/label_studio.sqlite3-shm
+2_label_studio/label_studio.sqlite3-wal
+4_training_results/*/weights/*.pt
+*.npy
+.venv/
+__pycache__/

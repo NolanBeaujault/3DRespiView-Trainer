@@ -1,0 +1,24 @@
+services:
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: label-studio
+    ports:
+      - "8080:8080"
+    environment:
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/images
+    volumes:
+      - ./2_label_studio:/label-studio/data
+      - ./1_raw_data:/label-studio/images
+    restart: unless-stopped
+
+  yolo:
+    image: ultralytics/ultralytics:latest-arm64
+    container_name: yolo-training
+    ipc: host
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: sleep infinity
