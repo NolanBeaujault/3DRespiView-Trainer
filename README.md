@@ -1,99 +1,125 @@
-# 3DRespiView-Trainer : Pipeline d'annotation & d'entraînement YOLO OBB
+# 3DRespiView Trainer
 
-Ce dépôt contient l'infrastructure logicielle complète pour gérer l'annotation web, l'entraînement de réseaux de neurones YOLOv26n-OBB (Oriented Bounding Boxes) et la compilation mobile pour le projet de suivi respiratoire 3DRespiView.
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![Ultralytics](https://img.shields.io/badge/Ultralytics-YOLO26n--OBB-111F68)
+![Label Studio](https://img.shields.io/badge/Label%20Studio-annotation-FF7557)
+![TFLite](https://img.shields.io/badge/export-TFLite-FF6F00?logo=tensorflow&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Platforms](https://img.shields.io/badge/runs%20on-macOS%20%7C%20Linux-lightgrey)
 
-## Prérequis
-L'ensemble de l'environnement est isolé dans des conteneurs Docker. Aucune dépendance locale (Python, PyTorch, pilotes Nvidia CUDA) n'est requise.
-* Installez [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-* Installez [Git](https://git-scm.com/)
+Annotation and training pipeline of the YOLO OBB model that places the thoraco-abdominal region of
+interest in the 3DRespiView Android app. Label Studio is used to annotate IR frames, Ultralytics to
+train a YOLO26n-OBB (oriented bounding boxes) model, which is exported to TFLite for the app.
 
----
+Everything runs in Docker: no Python, PyTorch or CUDA to install on the machine.
 
-## Architecture des Fichiers du Projet
+## Workspace layout
 
-```text
-.
-├── 1_label_studio/           # Base de données et persistance de Label Studio (Géré par l'outil)
-│   └── media/                # Stockage local sécurisé des images téléversées par le web
-├── 2_yolo_dataset/           # Jeux de données versionnés extraits de Label Studio
-│   └── v4_obb/               # Exemple de version (contenant dossiers /images et /labels)
-├── 3_training_results/       # Résultats d'entraînement (Courbes de perte, matrices, best.pt)
-├── 4_exported_models/        # Livrables compressés au format .tflite pour Android
-├── scripts/
-│   └── pipeline.py           # Script d'automatisation : Split Train/Val + Training (+ Export Mobile)
-├── docker-compose.yml        # Orchestration Docker (Label Studio + YOLO Container)
-└── yolo26n-obb.pt            # Poids de base pour le Transfer Learning
+This repository only holds code. The data lives next to it, in the `3DRespiView-Results` folder shared
+with the [viewer](https://github.com/sadc-lab/3DRespiView_Mobile-server), with the same layout on the
+Mac and on the hospital tower:
 
 ```
+~/Documents/POLYMTL/
+├── 3DRespiView-Viewer/                dashboard + workstation scripts (pull, sync, doctor)
+├── 3DRespiView-Trainer/               this repository
+└── 3DRespiView-Results/
+    ├── sessions/                      sessions recorded by the phone
+    └── training/
+        ├── 1_raw_data/                IR frames to annotate (served to Label Studio)
+        ├── 2_label_studio/            Label Studio database and uploads
+        ├── 3_yolo_dataset/<version>/  datasets exported from Label Studio
+        ├── 4_training_results/<version>/   Ultralytics runs (curves, weights/best.pt)
+        ├── 5_exported_models/<version>/    model_torse_<version>.tflite + model_card.json
+        └── weights/                   base weights (yolo26n-obb.pt)
+```
 
----
+To work on another machine, copy `3DRespiView-Results` with the viewer's
+`scripts/sync_results.py` (external drive). **Stop Label Studio before synchronizing**: its database
+must not change during the copy, and annotating on two machines between two synchronizations
+creates a conflict the script reports instead of overwriting.
 
-## Guide d'Utilisation Clinique
+## Setup
 
-### Étape 1 : Initialisation de l'infrastructure
+1. Install [Docker](https://www.docker.com/products/docker-desktop/) and git.
+2. Clone this repository next to `3DRespiView-Results` (see the viewer's README for the full
+   workstation setup), then get the training data:
+   - **from another machine**: `python3 ../3DRespiView-Viewer/scripts/sync_results.py /Volumes/T7/3DRespiView-Results --from`
+   - **from the former `3DRespiview-YOLO` folder** (one time): see [Migration](#migration-from-3drespiview-yolo)
+   - **from scratch**: `mkdir -p ../3DRespiView-Results/training/{1_raw_data,2_label_studio}`
+3. Machine-specific settings, only where needed: `cp .env.example .env`, then
 
-Démarrez les services d'arrière-plan en exécutant cette commande depuis la racine de ce dossier :
+   | Machine | `.env` |
+   |---|---|
+   | Mac (Apple Silicon) | nothing, no `.env` needed |
+   | Linux with an NVIDIA GPU | `YOLO_IMAGE=ultralytics/ultralytics:latest`, `COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml` |
+   | Linux without GPU | `YOLO_IMAGE=ultralytics/ultralytics:latest-cpu` |
+   | Linux (both cases) | `TRAINER_USER` and `LABEL_STUDIO_USER` set to your ids (`id -u`, `id -g`) so the files stay yours |
+
+   Use the same `LABEL_STUDIO_VERSION` on every machine (`docker exec label-studio label-studio version`).
+4. `docker compose up -d`
+
+| Service | Where |
+|---|---|
+| Label Studio | http://localhost:8080 |
+| Training container | `yolo-training` (`docker exec -it yolo-training …`) |
+
+## Workflow
+
+### 1. Collect IR frames
+Put the IR frames to annotate in `training/1_raw_data/` (JPEG). In Label Studio they are served as
+local files: *Settings → Cloud Storage → Add Source Storage → Local files*, path `/label-studio/images`.
+
+### 2. Annotate in Label Studio
+Class `thoracoabdominal`, outlined with 4 points (*PolygonLabels*, or *RectangleLabels* with rotation)
+to produce an oriented box.
+
+### 3. Export a dataset version
+*Export → YOLO* in Label Studio, then extract the archive flat into a new version folder:
+
+```
+training/3_yolo_dataset/v4_obb/images/*.jpg
+training/3_yolo_dataset/v4_obb/labels/*.txt
+```
+
+One folder per version: never add images to a version that has already been trained.
+
+### 4. Train
+```bash
+docker exec -it yolo-training python scripts/pipeline.py v4_obb             # train only
+docker exec -it yolo-training python scripts/pipeline.py v4_obb --tflite    # train + export for the app
+```
+Options: `--epochs` (100), `--imgsz` (640), `--seed` (42), `--val-ratio` (0.2).
+
+- **Split**: 80 % train / 20 % val, reproducible with `--seed` and recorded in `split.json`. Running
+  the pipeline again on the same version reuses that split.
+- **Training**: curves, confusion matrices and `weights/best.pt` in `4_training_results/v4_obb/`.
+- **Export** (`--tflite`): `5_exported_models/v4_obb/model_torse_v4_obb.tflite` and `model_card.json`
+  (dataset version and split, training settings, metrics, Ultralytics version, **SHA-256**).
+
+### 5. Deploy in the app
+Copy the `.tflite` into the app's assets. Each analysis recorded by the app stores the model's SHA-256
+in `analysis.json`: compare it with `model_card.json` to know which dataset and training run produced
+the results shown in the dashboard.
+
+## Migration from 3DRespiview-YOLO
+
+The data used to live inside the former local folder `3DRespiview-YOLO`. To move it, one time:
 
 ```bash
-docker compose up -d
-
+cd ~/Documents/POLYMTL/3DRespiview-YOLO && docker compose down       # stop the former Label Studio
+cd ~/Documents/POLYMTL/3DRespiView-Trainer
+python3 scripts/migrate_legacy.py ../3DRespiview-YOLO
+docker compose up -d                                                 # check the projects in Label Studio
 ```
 
-* **Interface graphique de labellisation :** Accessible dans votre navigateur sur `http://localhost:8080`.
-* **Moteur d'entraînement YOLO :** S'exécute en tâche de fond sous le nom de conteneur `yolo-training`.
+The script copies `1_raw_data`, `2_label_studio`, `3_yolo_dataset`, `4_training_results`,
+`5_exported_models`, `prediction_test` and `yolo26n-obb.pt` into `3DRespiView-Results/training/`,
+checks every file, and never modifies the former folder. Delete it once Label Studio shows your
+projects and annotations.
 
-### Étape 2 : Annotation en ligne (Label Studio)
-
-1. Ouvrez `http://localhost:8080`, créez un compte local et initialisez un nouveau projet.
-2. **Importation :** Cliquez sur le bouton **Import** et glissez-déposez directement vos clichés de patients au format `.jpg` dans le navigateur.
-*(Note : Les images sont automatiquement stockées de manière permanente sur votre disque dur dans le dossier `1_label_studio/media/upload/`, aucun risque de perte à l'arrêt du PC).*
-3. **Configuration du projet :** Dans le menu *Labeling Setup*, sélectionnez l'outil **PolygonLabels** (ou *RectangleLabels* en activant la rotation) et ajoutez le nom de classe exact : `thoracoabdominal`.
-4. **Annotation :** Détourez finement la zone thoracique à l'aide de 4 points pour créer la boîte orientée (OBB).
-
-### Étape 3 : Exportation & Extraction du jeu de données
-
-1. Une fois les images annotées, cliquez sur le bouton **Export** en haut à droite de l'interface web de Label Studio.
-2. Choisissez impérativement le format **YOLO** (Label Studio convertit automatiquement vos polygones graphiques en vecteurs OBB natifs).
-3. Téléchargez l'archive `.zip` générée.
-4. Créez un dossier de version dans votre espace local (ex: `2_yolo_dataset/v4_obb/`).
-5. Extrayez l'archive téléchargée pour organiser les fichiers à plat comme suit :
-* Déposez l'intégralité des fichiers texte de coordonnées dans : `2_yolo_dataset/v4_obb/labels/`
-* Déposez l'intégralité des images correspondantes dans : `2_yolo_dataset/v4_obb/images/`
-
-
-
-*(Note : Ne créez pas de sous-dossiers manuellement. Laissez les images et les labels en vrac dans leurs répertoires respectifs. La pipeline se chargera de la répartition de manière autonome).*
-
-### Étape 4 : Exécution automatique de la pipeline YOLO
-
-Exécutez le script d'orchestration maître directement à l'intérieur de l'unité de calcul YOLO selon vos besoins de recherche :
-
-#### Option A : Entraînement Standard (Recherche & Analyse PC)
-
-Pour lancer l'entraînement, évaluer les métriques et générer le fichier de poids PyTorch (`best.pt`) sans compilation mobile :
+## Tests
 
 ```bash
-docker exec -it yolo-training python scripts/pipeline.py v4_obb
-
-```
-
-#### Option B : Entraînement Complet avec Export Mobile (Déploiement Android)
-
-Si vous souhaitez compiler, quantifier et exporter automatiquement le modèle finalisé pour l'application mobile, ajoutez le drapeau `--tflite` à la fin de la commande :
-
-```bash
-docker exec -it yolo-training python scripts/pipeline.py v4_obb --tflite
-
-```
-
----
-
-## Livrables Générés
-
-La pipeline gère l'ensemble des tâches de manière transparente :
-
-1. **Split Mathématique :** Isole aléatoirement 80% des clichés pour l'entraînement (`train/`) et 20% pour la validation clinique (`val/`).
-2. **Métrologie de convergence :** Exécute 100 époques d'ajustement et écrit les courbes de précision, de rappel et les matrices de confusion dans `3_training_results/v4_obb/`.
-3. **Livrable Mobile (Si option activée) :** Compile le réseau de neurones et livre le fichier compressé dans `4_exported_models/v4_obb/model_torse_v4_obb.tflite`, prêt à être copié-collé dans le répertoire d'assets de l'application Android.
-
+python3 -m unittest discover -s tests      # pipeline (Ultralytics replaced by a stand-in) and migration
 ```
