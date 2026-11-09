@@ -56,7 +56,8 @@ creates a conflict the script reports instead of overwriting.
    | Linux without GPU | `YOLO_IMAGE=ultralytics/ultralytics:latest-cpu` |
    | Linux (both cases) | `TRAINER_USER` and `LABEL_STUDIO_USER` set to your ids (`id -u`, `id -g`) so the files stay yours |
 
-   Use the same `LABEL_STUDIO_VERSION` on every machine (`docker exec label-studio label-studio version`).
+   Label Studio is pinned in `docker-compose.yml`: the same image everywhere, since its database
+   travels between machines.
 4. `docker compose up -d`
 
 | Service | Where |

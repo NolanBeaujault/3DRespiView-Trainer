@@ -5,9 +5,11 @@
 
 services:
   label-studio:
-    # Use the SAME version on every machine: its database is copied between them, and a newer
-    # Label Studio upgrades it to a format an older one cannot open.
-    image: heartexlabs/label-studio:${LABEL_STUDIO_VERSION:-latest}
+    # The SAME image on every machine: its database is copied between them, and a newer
+    # Label Studio upgrades it to a format an older one cannot open. Pinned by digest
+    # (Label Studio 1.23, multi-arch: same release on the Mac and on the tower).
+    # To upgrade: back up 2_label_studio, change the digest, commit, pull on every machine.
+    image: ${LABEL_STUDIO_IMAGE:-heartexlabs/label-studio@sha256:afcc516a22775a39d0d66f4c2ddc95d01be3e3d3862b21fcf4f9de34b4ad4e12}
     container_name: label-studio
     user: "${LABEL_STUDIO_USER:-1001:0}"
     ports:
