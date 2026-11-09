@@ -1,19 +1,44 @@
+# Training data lives next to this repository, in ../3DRespiView-Results/training
+# (same layout on the Mac and on the hospital tower, see README).
+# Machine-specific settings (training image, GPU, Linux user) go in .env: see .env.example.
+# The data folders must exist (bind mounts fail instead of creating root-owned folders).
+
 services:
   label-studio:
-    image: heartexlabs/label-studio:latest
+    # Use the SAME version on every machine: its database is copied between them, and a newer
+    # Label Studio upgrades it to a format an older one cannot open.
+    image: heartexlabs/label-studio:${LABEL_STUDIO_VERSION:-latest}
     container_name: label-studio
+    user: "${LABEL_STUDIO_USER:-1001:0}"
     ports:
       - "8080:8080"
+    environment:
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/images
     volumes:
-      - ./1_label_studio:/label-studio/data
+      - type: bind
+        source: ${TRAINING_DATA:-../3DRespiView-Results/training}/2_label_studio
+        target: /label-studio/data
+      - type: bind
+        source: ${TRAINING_DATA:-../3DRespiView-Results/training}/1_raw_data
+        target: /label-studio/images
     restart: unless-stopped
 
   yolo:
-    image: ultralytics/ultralytics:latest-arm64
+    # Apple Silicon by default. Hospital tower (x86): set YOLO_IMAGE in .env.
+    image: ${YOLO_IMAGE:-ultralytics/ultralytics:latest-arm64}
     container_name: yolo-training
+    user: "${TRAINER_USER:-0:0}"
     ipc: host
+    environment:
+      # Writable caches when the container runs as your user (TRAINER_USER on Linux)
+      - YOLO_CONFIG_DIR=/tmp/Ultralytics
+      - MPLCONFIGDIR=/tmp/matplotlib
     volumes:
       - .:/workspace
+      - type: bind
+        source: ${TRAINING_DATA:-../3DRespiView-Results/training}
+        target: /data
     working_dir: /workspace
     stdin_open: true
     tty: true

@@ -1,0 +1,13 @@
+# NVIDIA GPU for the training container (hospital tower). Enabled from .env with
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml
+# Needs the NVIDIA driver and the NVIDIA Container Toolkit on the host.
+
+services:
+  yolo:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

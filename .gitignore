@@ -1,8 +1,27 @@
-.DS_Store
-1_label_studio/media/
-1_label_studio/label_studio.sqlite3-shm
-1_label_studio/label_studio.sqlite3-wal
-3_training_results/*/weights/*.pt
+# Data never lives in this repository: it is in ../3DRespiView-Results/training (see README).
+# Listed here so that a leftover copy can never be committed by mistake.
+1_raw_data/
+2_label_studio/
+3_yolo_dataset/
+4_training_results/
+5_exported_models/
+prediction_test/
+runs/
+
+# Weights (downloaded by Ultralytics into the working directory), exports, calibration data
+*.pt
+*.tflite
+*.onnx
 *.npy
-.venv/
+
+# Machine-specific settings
+.env
+**/.env
+
+# Python
 __pycache__/
+.venv/
+
+# macOS
+.DS_Store
+**/.DS_Store
